@@ -19,6 +19,10 @@ logger = logging.getLogger(__name__)
 # 이 파일의 최상단에 위치하는 것이 일반적입니다.
 app = func.FunctionApp()
 
+COSMOS_DB_DATABASE = os.getenv("CosmosDBDatabase", "RobotMonitoringDB")
+COSMOS_DB_CONTAINER = os.getenv("CosmosDBContainer", "LatestRobotStates")
+COSMOS_DB_CONNECTION_STRING = os.getenv("CosmosDBConnection")
+                                        
 # ==============================================================================
 # 1. RobotStatusChangeLogger 함수 (Event Grid Trigger)
 # 모든 로봇 상태 변경 이벤트를 수신하여 로그를 기록합니다.
@@ -122,4 +126,48 @@ def MaintenanceScheduler(event: func.EventGridEvent):
     except Exception as e:
         logger.error(f"Scheduler: Error processing Event Grid event: {e}", exc_info=True)
 
+
+# ==============================================================================
+# 3. RobotStateUpdater 함수 (Event Grid Trigger + Cosmos DB Output Binding)
+# 로봇 상태 변경 이벤트를 수신하여 Cosmos DB에 실시간으로 업데이트합니다.
+# ==============================================================================
+@app.event_grid_trigger(arg_name="event")
+@app.cosmos_db_output(arg_name="outputDocument", 
+                      database_name=COSMOS_DB_DATABASE,
+                      collection_name=COSMOS_DB_CONTAINER,
+                      connection_string_setting=COSMOS_DB_CONNECTION_STRING,
+                      create_if_not_exists=False # 배포 환경에서는 False로 설정하는 것이 좋습니다.
+                     )
+def RobotStateUpdater(event: func.EventGridEvent, outputDocument: func.Out[func.Document]):
+    logger.info('Python Event Grid trigger processed RobotStateUpdater event.')
+
+    try:
+        event_data = event.get_json()
+        robot_telemetry_body = event_data.get('data', {}).get('body', {})
+
+        if not robot_telemetry_body:
+            logger.warning(f"Updater: Event body is empty or malformed: {event_data}")
+            return
+
+        # Cosmos DB에 저장할 문서 생성 (id는 upsert를 위해 deviceId로 설정)
+        robot_document = {
+            "id": robot_telemetry_body.get('deviceId'),
+            "deviceId": robot_telemetry_body.get('deviceId'),
+            "timestamp": robot_telemetry_body.get('ttimestamp'),
+            "batteryLevel": robot_telemetry_body.get('batteryLevel'),
+            "currentStatus": robot_telemetry_body.get('currentStatus'),
+            "purificationStatus": robot_telemetry_body.get('purificationStatus'),
+            "location": robot_telemetry_body.get('location'),
+            "eventGridEventId": event.id
+        }
+        
+        # Output Binding을 통해 문서 저장/업데이트
+        # func.Document.from_json()을 사용하여 JSON 문자열을 func.Document 객체로 변환
+        outputDocument.set(func.Document.from_json(json.dumps(robot_document)))
+        logger.info(f"Updater: Updated Cosmos DB for DeviceId: {robot_document['deviceId']}")
+
+    except json.JSONDecodeError:
+        logger.error(f"Updater: Could not decode JSON from Event Grid event: {event.get_body()}")
+    except Exception as e:
+        logger.error(f"Updater: Error processing Event Grid event: {e}", exc_info=True)
     
