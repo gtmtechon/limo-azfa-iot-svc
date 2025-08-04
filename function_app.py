@@ -130,14 +130,21 @@ def MaintenanceScheduler(event: func.EventGridEvent):
 # ==============================================================================
 # 3. RobotStateUpdater 함수 (Event Grid Trigger + Cosmos DB Output Binding)
 # 로봇 상태 변경 이벤트를 수신하여 Cosmos DB에 실시간으로 업데이트합니다.
+# @app.cosmos_db_output(arg_name="outputDocument", 
+#                       database_name="RobotMonitoringDB",
+#                       collection_name="LatestRobotStates",
+#                       connection_string_setting="CosmosDBConnection",
+#                       create_if_not_exists=True
+#                      )
 # ==============================================================================
 @app.event_grid_trigger(arg_name="event")
 @app.cosmos_db_output(arg_name="outputDocument", 
                       database_name="RobotMonitoringDB",
-                      collection_name="LatestRobotStates",
-                      connection_string_setting="CosmosDBConnection",
-                      create_if_not_exists=False # 배포 환경에서는 False로 설정하는 것이 좋습니다.
+                      container_name="LatestRobotStates", # 이름 수정
+                      connection="CosmosDBConnection", # 이름 수정
+                      create_if_not_exists=False
                      )
+
 def RobotStateUpdater(event: func.EventGridEvent, outputDocument: func.Out[func.Document]):
     logger.info('Python Event Grid trigger processed RobotStateUpdater event.')
 
@@ -149,7 +156,6 @@ def RobotStateUpdater(event: func.EventGridEvent, outputDocument: func.Out[func.
             logger.warning(f"Updater: Event body is empty or malformed: {event_data}")
             return
 
-        # Cosmos DB에 저장할 문서 생성 (id는 upsert를 위해 deviceId로 설정)
         robot_document = {
             "id": robot_telemetry_body.get('deviceId'),
             "deviceId": robot_telemetry_body.get('deviceId'),
@@ -161,8 +167,6 @@ def RobotStateUpdater(event: func.EventGridEvent, outputDocument: func.Out[func.
             "eventGridEventId": event.id
         }
         
-        # Output Binding을 통해 문서 저장/업데이트
-        # func.Document.from_json()을 사용하여 JSON 문자열을 func.Document 객체로 변환
         outputDocument.set(func.Document.from_json(json.dumps(robot_document)))
         logger.info(f"Updater: Updated Cosmos DB for DeviceId: {robot_document['deviceId']}")
 
@@ -170,4 +174,5 @@ def RobotStateUpdater(event: func.EventGridEvent, outputDocument: func.Out[func.
         logger.error(f"Updater: Could not decode JSON from Event Grid event: {event.get_body()}")
     except Exception as e:
         logger.error(f"Updater: Error processing Event Grid event: {e}", exc_info=True)
+
     
