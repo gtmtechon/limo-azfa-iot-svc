@@ -4,6 +4,8 @@ import logging
 import json
 import os
 import azure.functions as func
+import uuid  # UUID를 사용하기 위해 uuid 라이브러리 추가
+
 #import sendgrid
 #from sendgrid.helpers.mail import Email, Mail, Personalization
 
@@ -133,23 +135,32 @@ def MaintenanceScheduler(event: func.EventGridEvent):
                       database_name="RobotMonitoringDB", # 이름 수정 RobotMonitoringDB
                       container_name="LatestRobotStates", # 이름 수정 LatestRobotStates
                       connection="CosmosDBConnection", # 이름 수정
-                      create_if_not_exists=True, # 컨테이너가 없으면 생성
+                      create_if_not_exists=False, # 컨테이너가 없으면 생성
                       partition_key="/deviceId" # 파티션 키 설정
                      )
-def RobotStateUpdater(event: func.EventGridEvent, outputDocument: func.Out[func.Document]):
+@app.cosmos_db_output(arg_name="historyDocument", 
+                      database_name="RobotMonitoringDB",
+                      container_name="RobotStateHistory",
+                      connection="CosmosDBConnection",
+                      create_if_not_exists=True
+                     )
+def RobotStateUpdater(event: func.EventGridEvent, 
+                      outputDocument: func.Out[func.Document],
+                      historyDocument: func.Out[func.Document]):
     logger.info('Python Event Grid trigger processed RobotStateUpdater event.')
 
     try:
         event_data = event.get_json()
-        # 'data' 필드가 없는 구조이므로 바로 'body'를 가져옵니다.
         robot_telemetry_body = event_data.get('body', {})
 
         if not robot_telemetry_body:
             logger.warning(f"Updater: Event body is empty or malformed: {event_data}")
             return
 
-        robot_document = {
-            "id": robot_telemetry_body.get('deviceId'),
+        # 1. '최종 상태'를 저장할 문서
+        # 이 문서는 기존과 동일하게 deviceId를 id로 사용하여 upsert(덮어쓰기) 됩니다.
+        robot_document_latest = {
+            "id": robot_telemetry_body.get('deviceId'), # deviceId를 id로 사용하여 덮어쓰기
             "deviceId": robot_telemetry_body.get('deviceId'),
             "timestamp": robot_telemetry_body.get('ttimestamp'),
             "batteryLevel": robot_telemetry_body.get('batteryLevel'),
@@ -159,17 +170,31 @@ def RobotStateUpdater(event: func.EventGridEvent, outputDocument: func.Out[func.
             "eventGridEventId": event.id
         }
         
-        outputDocument.set(func.Document.from_json(json.dumps(robot_document)))
-   
+        # 2. '이력 데이터'를 저장할 문서
+        # uuid.uuid4()를 사용하여 매번 고유한 id를 생성합니다.
+        # 이렇게 하면 새로운 문서가 생성되어 누적됩니다.
+        robot_document_history = {
+            "id": str(uuid.uuid4()), # 매번 새로운 고유 ID 생성
+            "deviceId": robot_telemetry_body.get('deviceId'),
+            "timestamp": robot_telemetry_body.get('ttimestamp'),
+            "batteryLevel": robot_telemetry_body.get('batteryLevel'),
+            "currentStatus": robot_telemetry_body.get('currentStatus'),
+            "purificationStatus": robot_telemetry_body.get('purificationStatus'),
+            "location": robot_telemetry_body.get('location'),
+            "eventGridEventId": event.id
+        }
+
+        # 두 개의 출력 바인딩에 각각 다른 문서를 설정
+        outputDocument.set(func.Document.from_json(json.dumps(robot_document_latest)))
+        historyDocument.set(func.Document.from_json(json.dumps(robot_document_history)))
         
-        logger.info(f"Updater: Updated Cosmos DB for DeviceId: {robot_document['deviceId']}")
+        logger.info(f"Updater: Updated latest status for DeviceId: {robot_document_latest['deviceId']}")
+        logger.info(f"Updater: Logged historical data for DeviceId: {robot_document_history['deviceId']} with new id: {robot_document_history['id']}")
 
     except json.JSONDecodeError:
         logger.error(f"Updater: Could not decode JSON from Event Grid event: {event.get_body()}")
     except Exception as e:
         logger.error(f"Updater: Error processing Event Grid event: {e}", exc_info=True)
-
-
 
 
 
