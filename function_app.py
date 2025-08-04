@@ -19,9 +19,9 @@ logger = logging.getLogger(__name__)
 # 이 파일의 최상단에 위치하는 것이 일반적입니다.
 app = func.FunctionApp()
 
-COSMOS_DB_DATABASE = os.getenv("CosmosDBDatabase", "RobotMonitoringDB")
-COSMOS_DB_CONTAINER = os.getenv("CosmosDBContainer", "LatestRobotStates")
-COSMOS_DB_CONNECTION_STRING = os.getenv("CosmosDBConnection")
+# COSMOS_DB_DATABASE = os.getenv("CosmosDBDatabase", "RobotMonitoringDB")
+# COSMOS_DB_CONTAINER = os.getenv("CosmosDBContainer", "LatestRobotStates")
+# COSMOS_DB_CONNECTION_STRING = os.getenv("CosmosDBConnection")
                                         
 # ==============================================================================
 # 1. RobotStatusChangeLogger 함수 (Event Grid Trigger)
@@ -133,9 +133,9 @@ def MaintenanceScheduler(event: func.EventGridEvent):
 # ==============================================================================
 @app.event_grid_trigger(arg_name="event")
 @app.cosmos_db_output(arg_name="outputDocument", 
-                      database_name=COSMOS_DB_DATABASE,
-                      collection_name=COSMOS_DB_CONTAINER,
-                      connection_string_setting=COSMOS_DB_CONNECTION_STRING,
+                      database_name="RobotMonitoringDB",
+                      collection_name="LatestRobotStates",
+                      connection_string_setting="CosmosDBConnection",
                       create_if_not_exists=False # 배포 환경에서는 False로 설정하는 것이 좋습니다.
                      )
 def RobotStateUpdater(event: func.EventGridEvent, outputDocument: func.Out[func.Document]):
