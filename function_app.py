@@ -130,10 +130,11 @@ def MaintenanceScheduler(event: func.EventGridEvent):
 # ==============================================================================
 @app.event_grid_trigger(arg_name="event")
 @app.cosmos_db_output(arg_name="outputDocument", 
-                      database_name="RobotMonitoringDB",
-                      container_name="LatestRobotStates", # 이름 수정
+                      database_name="RobotMonitoringDB", # 이름 수정 RobotMonitoringDB
+                      container_name="LatestRobotStates", # 이름 수정 LatestRobotStates
                       connection="CosmosDBConnection", # 이름 수정
-                      create_if_not_exists=False
+                      create_if_not_exists=True, # 컨테이너가 없으면 생성
+                      partition_key="/deviceId" # 파티션 키 설정
                      )
 def RobotStateUpdater(event: func.EventGridEvent, outputDocument: func.Out[func.Document]):
     logger.info('Python Event Grid trigger processed RobotStateUpdater event.')
@@ -159,6 +160,8 @@ def RobotStateUpdater(event: func.EventGridEvent, outputDocument: func.Out[func.
         }
         
         outputDocument.set(func.Document.from_json(json.dumps(robot_document)))
+   
+        
         logger.info(f"Updater: Updated Cosmos DB for DeviceId: {robot_document['deviceId']}")
 
     except json.JSONDecodeError:
