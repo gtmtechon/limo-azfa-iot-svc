@@ -4,25 +4,19 @@ import logging
 import json
 import os
 import azure.functions as func
-
-# SendGrid 라이브러리 임포트 (MaintenanceScheduler 함수에 필요)
-# 본 데모에서는 실제 메일은 보내지 않고, 메시지만 로깅합니다.
-# 실제로 SendGrid를 사용하려면 아래 주석을 해제하고, 필요한 환경 변수를 설정하세요.
-# 예: SENDGRID_API_KEY, SENDER_EMAIL, RECIPIENT_EMAIL
-# import sendgrid
-# from sendgrid import SendGridAPIClient
-# from sendgrid.helpers.mail import Mail, Email, Personalization
+#import sendgrid
+#from sendgrid.helpers.mail import Email, Mail, Personalization
 
 logger = logging.getLogger(__name__)
 
 # 중요: func.FunctionApp() 인스턴스는 프로젝트 전체에서 단 한 번만 정의되어야 합니다.
-# 이 파일의 최상단에 위치하는 것이 일반적입니다.
 app = func.FunctionApp()
 
+# 환경 변수에서 데이터베이스 및 컨테이너 이름을 로드합니다.
 # COSMOS_DB_DATABASE = os.getenv("CosmosDBDatabase", "RobotMonitoringDB")
 # COSMOS_DB_CONTAINER = os.getenv("CosmosDBContainer", "LatestRobotStates")
-# COSMOS_DB_CONNECTION_STRING = os.getenv("CosmosDBConnection")
-                                        
+# COSMOS_DB_CONNECTION_STRING = os.getenv("CosmosDBConnection", "")
+
 # ==============================================================================
 # 1. RobotStatusChangeLogger 함수 (Event Grid Trigger)
 # 모든 로봇 상태 변경 이벤트를 수신하여 로그를 기록합니다.
@@ -32,8 +26,12 @@ def RobotStatusChangeLogger(event: func.EventGridEvent):
     logger.info('Python Event Grid trigger processed RobotStatusChangeLogger event.')
     
     try:
+        # NOTE: event.get_json()은 IoT Hub 이벤트의 'data' 필드 안의 내용을 반환합니다.
         event_data = event.get_json()
-        robot_telemetry_body = event_data.get('data', {}).get('body', {})
+        
+        # 'data' 필드가 없는 구조이므로 바로 'body'를 가져옵니다.
+        # 이전 코드: event_data.get('data', {}).get('body', {})
+        robot_telemetry_body = event_data.get('body', {})
 
         if not robot_telemetry_body:
             logger.warning(f"Logger: Event body is empty or malformed: {event_data}")
@@ -67,7 +65,8 @@ def MaintenanceScheduler(event: func.EventGridEvent):
     
     try:
         event_data = event.get_json()
-        robot_telemetry_body = event_data.get('data', {}).get('body', {})
+        # 'data' 필드가 없는 구조이므로 바로 'body'를 가져옵니다.
+        robot_telemetry_body = event_data.get('body', {})
 
         if not robot_telemetry_body:
             logger.warning(f"Scheduler: Event body is empty or malformed: {event_data}")
@@ -78,7 +77,6 @@ def MaintenanceScheduler(event: func.EventGridEvent):
         current_status = robot_telemetry_body.get('currentStatus', 'N/A')
         ttimestamp = robot_telemetry_body.get('ttimestamp', 'N/A')
         
-        # 알림 트리거 조건
         alert_triggered = False
         alert_reason = []
 
@@ -101,25 +99,24 @@ def MaintenanceScheduler(event: func.EventGridEvent):
             
             logger.critical(f"Scheduler: Alert triggered for robot {device_id}: {alert_content}")
 
-            # 이메일 발송 로직 (SendGrid)
-        #     try:
-        #         sg = sendgrid.SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
-        #         mail = Mail()
-        #         mail.from_email = Email(os.environ.get('SENDER_EMAIL', 'sender@example.com'))
+            # try:
+            #     sg = sendgrid.SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
+            #     mail = Mail()
+            #     mail.from_email = Email(os.environ.get('SENDER_EMAIL', 'sender@example.com'))
                 
-        #         personalization = Personalization()
-        #         personalization.add_to(Email(os.environ.get('RECIPIENT_EMAIL', 'recipient@example.com')))
-        #         mail.add_personalization(personalization)
+            #     personalization = Personalization()
+            #     personalization.add_to(Email(os.environ.get('RECIPIENT_EMAIL', 'recipient@example.com')))
+            #     mail.add_personalization(personalization)
                 
-        #         mail.subject = alert_subject
-        #         mail.add_content("text/plain", alert_content)
+            #     mail.subject = alert_subject
+            #     mail.add_content("text/plain", alert_content)
                 
-        #         response = sg.send(mail)
-        #         logger.info(f"Scheduler: Email sent. Status Code: {response.status_code}")
-        #     except Exception as e:
-        #         logger.error(f"Scheduler: Error sending email via SendGrid: {e}")
-        # else:
-        #     logger.info(f"Scheduler: No alert triggered for robot {device_id} (Battery: {battery_level}%, Status: {current_status})")
+            #     response = sg.send(mail)
+            #     logger.info(f"Scheduler: Email sent. Status Code: {response.status_code}")
+            # except Exception as e:
+            #     logger.error(f"Scheduler: Error sending email via SendGrid: {e}")
+        else:
+            logger.info(f"Scheduler: No alert triggered for robot {device_id} (Battery: {battery_level}%, Status: {current_status})")
 
     except json.JSONDecodeError:
         logger.error(f"Scheduler: Could not decode JSON from Event Grid event: {event.get_body()}")
@@ -130,12 +127,6 @@ def MaintenanceScheduler(event: func.EventGridEvent):
 # ==============================================================================
 # 3. RobotStateUpdater 함수 (Event Grid Trigger + Cosmos DB Output Binding)
 # 로봇 상태 변경 이벤트를 수신하여 Cosmos DB에 실시간으로 업데이트합니다.
-# @app.cosmos_db_output(arg_name="outputDocument", 
-#                       database_name="RobotMonitoringDB",
-#                       collection_name="LatestRobotStates",
-#                       connection_string_setting="CosmosDBConnection",
-#                       create_if_not_exists=True
-#                      )
 # ==============================================================================
 @app.event_grid_trigger(arg_name="event")
 @app.cosmos_db_output(arg_name="outputDocument", 
@@ -144,13 +135,13 @@ def MaintenanceScheduler(event: func.EventGridEvent):
                       connection="CosmosDBConnection", # 이름 수정
                       create_if_not_exists=False
                      )
-
 def RobotStateUpdater(event: func.EventGridEvent, outputDocument: func.Out[func.Document]):
     logger.info('Python Event Grid trigger processed RobotStateUpdater event.')
 
     try:
         event_data = event.get_json()
-        robot_telemetry_body = event_data.get('data', {}).get('body', {})
+        # 'data' 필드가 없는 구조이므로 바로 'body'를 가져옵니다.
+        robot_telemetry_body = event_data.get('body', {})
 
         if not robot_telemetry_body:
             logger.warning(f"Updater: Event body is empty or malformed: {event_data}")
@@ -175,4 +166,13 @@ def RobotStateUpdater(event: func.EventGridEvent, outputDocument: func.Out[func.
     except Exception as e:
         logger.error(f"Updater: Error processing Event Grid event: {e}", exc_info=True)
 
-    
+
+
+
+
+
+
+
+
+
+
