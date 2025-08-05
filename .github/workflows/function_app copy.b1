@@ -180,8 +180,7 @@ def MaintenanceScheduler(event: func.EventGridEvent):
 
 
 # ==============================================================================
-# 3. RealtimeStatePusher 함수 (Event Grid Trigger + SignalR Output)
-# 로봇 상태 변경 이벤트를 수신하여 Redis에 저장하고 SignalR을 통해 클라이언트에 푸시합니다.
+# 3. RealtimeStatePusher 함수 Redis
 # ==============================================================================
 @app.event_grid_trigger(arg_name="event")
 def RealtimeStatePusher(event: func.EventGridEvent):

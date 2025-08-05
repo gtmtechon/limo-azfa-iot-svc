@@ -66,11 +66,3 @@ def MaintenanceScheduler(event: func.EventGridEvent):
     except Exception as e:
         logger.error(f"Scheduler: Error processing Event Grid event: {e}", exc_info=True)
 
-
-@func.function_app.http(route="redis-set")
-def redis_set(req: func.HttpRequest) -> func.HttpResponse:
-    return func.HttpResponse("Redis key set successfully.")
-
-@func.function_app.http(route="redis-get")
-def redis_get(req: func.HttpRequest) -> func.HttpResponse:
-    return func.HttpResponse(f"Value from Redis: {value}")
