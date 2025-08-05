@@ -6,18 +6,20 @@ import os
 import azure.functions as func
 import uuid
 import redis
-#from redis_client import redis_client
+from redis.exceptions import ConnectionError
 
+#import sendgrid
+#from sendgrid.helpers.mail import Email, Mail, Personalization
+
+logger = logging.getLogger(__name__)
 
 # 중요: func.FunctionApp() 인스턴스는 프로젝트 전체에서 단 한 번만 정의되어야 합니다.
 app = func.FunctionApp()
 
-logger = logging.getLogger(__name__)
-
-
 # 환경 변수에서 Redis 연결 정보를 로드합니다.
 # Azure Function App의 '구성'에 설정되어야 합니다.
 REDIS_CONNECTION_STRING = os.getenv("RedisConnection", "")
+redis_client = None # 전역 변수로 초기화
 
 try:
     if REDIS_CONNECTION_STRING:
@@ -178,8 +180,9 @@ def MaintenanceScheduler(event: func.EventGridEvent):
 def RealtimeStatePusher(event: func.EventGridEvent):
     logger.info('Python Event Grid trigger processed RealtimeStatePusher event.')
 
-    if not redis_client:
-        logger.error("Redis client is not initialized. Cannot process event.")
+    # Redis 클라이언트가 초기화되었는지 확인
+    if redis_client is None:
+        logger.error("Pusher: Redis client is not initialized. Cannot process event.")
         return
 
     try:
@@ -202,6 +205,8 @@ def RealtimeStatePusher(event: func.EventGridEvent):
 
     except json.JSONDecodeError:
         logger.error(f"Pusher: Could not decode JSON from Event Grid event: {event.get_body()}")
+    except redis.exceptions.ConnectionError as e:
+        logger.error(f"Pusher: Redis connection error: {e}", exc_info=True)
     except Exception as e:
         logger.error(f"Pusher: Error processing Event Grid event: {e}", exc_info=True)
 
@@ -234,3 +239,4 @@ def GetLatestRobots(req: func.HttpRequest) -> func.HttpResponse:
             "An error occurred while fetching data.",
             status_code=500
         )
+
