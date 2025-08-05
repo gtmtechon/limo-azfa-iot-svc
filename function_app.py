@@ -16,35 +16,75 @@ logger = logging.getLogger(__name__)
 # ==============================================================================
 # 1. RobotStatusChangeLogger 함수 (Event Grid Trigger)
 # 모든 로봇 상태 변경 이벤트를 수신하여 로그를 기록합니다.
+# 로봇 상태 변경 이벤트를 수신하여 Cosmos DB에 실시간으로 업데이트합니다.
 # ==============================================================================
 @app.event_grid_trigger(arg_name="event")
-def RobotStatusChangeLogger(event: func.EventGridEvent):
-    logger.info('Python Event Grid trigger processed RobotStatusChangeLogger event.')
-    
+@app.cosmos_db_output(arg_name="outputDocument", 
+                      database_name="RobotMonitoringDB", # 이름 수정 RobotMonitoringDB
+                      container_name="LatestRobotStates", # 이름 수정 LatestRobotStates
+                      connection="CosmosDBConnection", # 이름 수정
+                      create_if_not_exists=False, # 컨테이너가 없으면 생성
+                      partition_key="/deviceId" # 파티션 키 설정
+                     )
+@app.cosmos_db_output(arg_name="historyDocument", 
+                      database_name="RobotMonitoringDB",
+                      container_name="RobotStateHistory",
+                      connection="CosmosDBConnection",
+                      create_if_not_exists=True
+                     )
+
+def RobotStatusChangeLogger(event: func.EventGridEvent, 
+                      outputDocument: func.Out[func.Document],
+                      historyDocument: func.Out[func.Document]):
+    logger.info('Python Event Grid trigger processed RobotStateUpdater event.')
+
     try:
         event_data = event.get_json()
         robot_telemetry_body = event_data.get('body', {})
 
         if not robot_telemetry_body:
-            logger.warning(f"Logger: Event body is empty or malformed: {event_data}")
+            logger.warning(f"Updater: Event body is empty or malformed: {event_data}")
             return
 
-        device_id = robot_telemetry_body.get('deviceId', 'N/A')
-        battery_level = robot_telemetry_body.get('batteryLevel', 'N/A')
-        current_status = robot_telemetry_body.get('currentStatus', 'N/A')
-        ttimestamp = robot_telemetry_body.get('ttimestamp', 'N/A')
+        # 1. '최종 상태'를 저장할 문서
+        # 이 문서는 기존과 동일하게 deviceId를 id로 사용하여 upsert(덮어쓰기) 됩니다.
+        robot_document_latest = {
+            "id": robot_telemetry_body.get('deviceId'), # deviceId를 id로 사용하여 덮어쓰기
+            "deviceId": robot_telemetry_body.get('deviceId'),
+            "timestamp": robot_telemetry_body.get('ttimestamp'),
+            "batteryLevel": robot_telemetry_body.get('batteryLevel'),
+            "currentStatus": robot_telemetry_body.get('currentStatus'),
+            "purificationStatus": robot_telemetry_body.get('purificationStatus'),
+            "location": robot_telemetry_body.get('location'),
+            "eventGridEventId": event.id
+        }
+        
+        # 2. '이력 데이터'를 저장할 문서
+        # uuid.uuid4()를 사용하여 매번 고유한 id를 생성합니다.
+        # 이렇게 하면 새로운 문서가 생성되어 누적됩니다.
+        robot_document_history = {
+            "id": str(uuid.uuid4()), # 매번 새로운 고유 ID 생성
+            "deviceId": robot_telemetry_body.get('deviceId'),
+            "timestamp": robot_telemetry_body.get('ttimestamp'),
+            "batteryLevel": robot_telemetry_body.get('batteryLevel'),
+            "currentStatus": robot_telemetry_body.get('currentStatus'),
+            "purificationStatus": robot_telemetry_body.get('purificationStatus'),
+            "location": robot_telemetry_body.get('location'),
+            "eventGridEventId": event.id
+        }
 
-        log_message = (
-            f"RobotTelemetryLog - DeviceId: {device_id}, "
-            f"Timestamp: {ttimestamp}, "
-            f"Battery: {battery_level}%, Status: {current_status}"
-        )
-        logger.info(log_message)
+        # 두 개의 출력 바인딩에 각각 다른 문서를 설정
+        outputDocument.set(func.Document.from_json(json.dumps(robot_document_latest)))
+        historyDocument.set(func.Document.from_json(json.dumps(robot_document_history)))
+        
+        logger.info(f"Updater: Updated latest status for DeviceId: {robot_document_latest['deviceId']}")
+        logger.info(f"Updater: Logged historical data for DeviceId: {robot_document_history['deviceId']} with new id: {robot_document_history['id']}")
 
     except json.JSONDecodeError:
-        logger.error(f"Logger: Could not decode JSON from Event Grid event: {event.get_body()}")
+        logger.error(f"Updater: Could not decode JSON from Event Grid event: {event.get_body()}")
     except Exception as e:
-        logger.error(f"Logger: Error processing Event Grid event: {e}", exc_info=True)
+        logger.error(f"Updater: Error processing Event Grid event: {e}", exc_info=True)
+
 
 
 # ==============================================================================
@@ -130,8 +170,6 @@ def RealtimeStatePusher(event: func.EventGridEvent):
 
     except json.JSONDecodeError:
         logger.error(f"Pusher: Could not decode JSON from Event Grid event: {event.get_body()}")
-    except redis.exceptions.ConnectionError as e:
-        logger.error(f"Pusher: Redis connection error: {e}")
     except Exception as e:
         logger.error(f"Pusher: Error processing Event Grid event: {e}", exc_info=True)
 
