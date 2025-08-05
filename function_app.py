@@ -5,6 +5,7 @@ import json
 import os
 import azure.functions as func
 import uuid
+import redis
 #from redis_client import redis_client
 
 
@@ -18,15 +19,29 @@ logger = logging.getLogger(__name__)
 # Azure Function App의 '구성'에 설정되어야 합니다.
 REDIS_CONNECTION_STRING = os.getenv("RedisConnection", "")
 
-# Redis 클라이언트 초기화 (함수 외부에서 한 번만 초기화)
 try:
     if REDIS_CONNECTION_STRING:
-        redis_client = redis.from_url(REDIS_CONNECTION_STRING)
-        logger.info("Successfully initialized Redis client.")
+        # Azure Cache for Redis는 SSL을 사용하므로,
+        # redis.from_url에 ssl=True와 ssl_cert_reqs='required'를 명시적으로 전달합니다.
+        # 이렇게 하면 'ssl' 키워드 인자 오류를 방지하고 보안 연결을 보장할 수 있습니다.
+        redis_client = redis.from_url(
+            REDIS_CONNECTION_STRING,
+            ssl=True,
+            ssl_cert_reqs='required'
+        )
+        
+        # 클라이언트 초기화 후 ping을 보내 연결을 확인합니다.
+        redis_client.ping()
+        logger.info("Successfully initialized Redis client and verified connection.")
+
+except ConnectionError as e:
+    # Redis 연결 관련 구체적인 오류를 catch하여 로그를 기록합니다.
+    logger.error(f"Failed to connect to Redis: {e}", exc_info=True)
+    redis_client = None
 except Exception as e:
+    # 그 외의 모든 초기화 오류를 catch합니다.
     logger.error(f"Failed to initialize Redis client: {e}", exc_info=True)
     redis_client = None
-
 
 
 # ==============================================================================
