@@ -30,7 +30,8 @@ logger = logging.getLogger(__name__)
                       database_name="RobotMonitoringDB",
                       container_name="RobotStateHistory",
                       connection="CosmosDBConnection",
-                      create_if_not_exists=True
+                      create_if_not_exists=True,
+                      partition_key="/deviceId" # 파티션 키 설정
                      )
 
 def RobotStatusChangeLogger(event: func.EventGridEvent, 
