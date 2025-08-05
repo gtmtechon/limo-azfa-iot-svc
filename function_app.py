@@ -4,7 +4,7 @@ import logging
 import json
 import os
 import azure.functions as func
-#import redis
+import uuid
 from redis_client import redis_client
 
 
