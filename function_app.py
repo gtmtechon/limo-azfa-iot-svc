@@ -5,13 +5,29 @@ import json
 import os
 import azure.functions as func
 import uuid
-from redis_client import redis_client
+#from redis_client import redis_client
 
 
 # 중요: func.FunctionApp() 인스턴스는 프로젝트 전체에서 단 한 번만 정의되어야 합니다.
 app = func.FunctionApp()
 
 logger = logging.getLogger(__name__)
+
+
+# 환경 변수에서 Redis 연결 정보를 로드합니다.
+# Azure Function App의 '구성'에 설정되어야 합니다.
+REDIS_CONNECTION_STRING = os.getenv("RedisConnection", "")
+
+# Redis 클라이언트 초기화 (함수 외부에서 한 번만 초기화)
+try:
+    if REDIS_CONNECTION_STRING:
+        redis_client = redis.from_url(REDIS_CONNECTION_STRING)
+        logger.info("Successfully initialized Redis client.")
+except Exception as e:
+    logger.error(f"Failed to initialize Redis client: {e}", exc_info=True)
+    redis_client = None
+
+
 
 # ==============================================================================
 # 1. RobotStatusChangeLogger 함수 (Event Grid Trigger)
