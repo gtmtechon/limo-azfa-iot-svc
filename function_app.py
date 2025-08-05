@@ -4,10 +4,9 @@ import logging
 import json
 import os
 import azure.functions as func
-import redis
-import uuid
-import azure.functions as func
-from redis_client import redis_client
+#import redis
+#import uuid
+#from redis_client import redis_client
 
 
 # 중요: func.FunctionApp() 인스턴스는 프로젝트 전체에서 단 한 번만 정의되어야 합니다.
