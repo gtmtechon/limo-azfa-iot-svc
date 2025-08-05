@@ -6,6 +6,8 @@ import os
 import azure.functions as func
 import uuid
 import redis
+import ssl
+from urllib.parse import urlparse, parse_qs
 from redis.exceptions import ConnectionError
 
 #import sendgrid
@@ -18,23 +20,35 @@ app = func.FunctionApp()
 
 # 환경 변수에서 Redis 연결 정보를 로드합니다.
 # Azure Function App의 '구성'에 설정되어야 합니다.
-REDIS_CONNECTION_STRING = os.getenv("RedisConnection", "")
+REDIS_CONNECTION_STRING = os.getenv("RedisConnectionString", "")
 redis_client = None # 전역 변수로 초기화
 
 try:
     if REDIS_CONNECTION_STRING:
-        # Azure Cache for Redis는 SSL을 사용하므로,
-        # redis.from_url에 ssl=True와 ssl_cert_reqs='required'를 명시적으로 전달합니다.
-        # 이렇게 하면 'ssl' 키워드 인자 오류를 방지하고 보안 연결을 보장할 수 있습니다.
-        redis_client = redis.from_url(
-            REDIS_CONNECTION_STRING,
-            ssl=True,
-            ssl_cert_reqs='required'
-        )
+        # Azure Cache for Redis 연결 문자열을 수동으로 파싱
+        # redis.from_url() 사용 시 발생하는 'ssl' 키워드 오류를 회피하기 위함
+        parsed_url = urlparse(REDIS_CONNECTION_STRING)
+        hostname = parsed_url.hostname
+        port = parsed_url.port
+        password = parsed_url.password
         
-        # 클라이언트 초기화 후 ping을 보내 연결을 확인합니다.
-        redis_client.ping()
-        logger.info("Successfully initialized Redis client and verified connection.")
+        # 연결 문자열에 쿼리 파라미터로 password가 있을 경우 처리
+        if not password and parsed_url.query:
+            query_params = parse_qs(parsed_url.query)
+            password = query_params.get('password', [None])[0]
+
+        if hostname and port:
+            redis_client = redis.Redis(
+                host=hostname,
+                port=port,
+                password=password,
+                ssl=True,
+                ssl_cert_reqs='required' # SSL 인증서 검증 필수
+            )
+        
+            # 클라이언트 초기화 후 ping을 보내 연결을 확인합니다.
+            redis_client.ping()
+            logger.info("Successfully initialized Redis client and verified connection.")
 
 except ConnectionError as e:
     # Redis 연결 관련 구체적인 오류를 catch하여 로그를 기록합니다.
@@ -239,4 +253,3 @@ def GetLatestRobots(req: func.HttpRequest) -> func.HttpResponse:
             "An error occurred while fetching data.",
             status_code=500
         )
-
