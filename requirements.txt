@@ -4,6 +4,6 @@
 
 azure-functions
 azure-cosmos
-redis
-uuid
+#redis
+#uuid
 #sendgrid
